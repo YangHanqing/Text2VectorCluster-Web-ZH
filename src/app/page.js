@@ -13,6 +13,7 @@ export default function Home() {
   const [results, setResults] = useState(null);
   const [epsilon, setEpsilon] = useState(0.15);
   const [minPts, setMinPts] = useState(2);
+  const [errorMessage, setErrorMessage] = useState(null);
   
   const worker = useRef(null);
 
@@ -27,6 +28,7 @@ export default function Home() {
       switch (e.data.status) {
         case 'initiate':
           setModelStatus('loading');
+          setErrorMessage(null);
           break;
         case 'ready':
           setModelStatus('ready');
@@ -34,24 +36,29 @@ export default function Home() {
           setClusterStatus(null);
           setComputeProgress(null);
           setPerformance(null);
+          setErrorMessage(null);
           break;
         case 'computing':
           setClusterStatus('computing');
           setComputeProgress(e.data.progress);
+          setErrorMessage(null);
           break;
         case 'clustering':
           setClusterStatus('clustering');
           setComputeProgress(null);
+          setErrorMessage(null);
           break;
         case 'complete':
           setClusterStatus('complete');
           setComputeProgress(null);
           setResults(e.data);
           setPerformance(e.data.performance);
+          setErrorMessage(null);
           break;
         case 'error':
           setClusterStatus('error');
           setComputeProgress(null);
+          setErrorMessage(e.data.error);
           console.error(e.data.error);
           break;
       }
@@ -65,6 +72,7 @@ export default function Home() {
     if (!texts.trim()) return;
     
     setClusterStatus('computing');
+    setErrorMessage(null);
     const textArray = texts.split('\n').filter(text => text.trim() !== '');
     
     worker.current.postMessage({
@@ -126,6 +134,7 @@ export default function Home() {
       setTexts(data);
     } catch (error) {
       console.error('加载测试数据失败:', error);
+      setErrorMessage('加载测试数据失败');
     }
   };
 
@@ -136,6 +145,17 @@ export default function Home() {
         <h1 className="text-3xl font-bold mb-2">文本聚类分析</h1>
         <h2 className="text-lg text-gray-600 mb-6">BGE-small-zh + DBSCAN聚类算法</h2>
         
+        {errorMessage && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-center text-red-600">
+              <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+              <span className="font-medium">{errorMessage}</span>
+            </div>
+          </div>
+        )}
+
         <div className="mb-4">
           <div className="text-sm font-medium mb-1">模型状态</div>
           <div className="flex items-center gap-2">

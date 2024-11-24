@@ -32,18 +32,40 @@ class PipelineSingleton {
                 this.useGPU = false;
             }
 
-            // 创建pipeline
-            this.instance = await pipeline(this.task, this.model, {
-                progress_callback,
-                device: this.device  // 使用检测到的设备
-            });
+            try {
+                // 配置选项
+                const options = {
+                    progress_callback,
+                    device: this.device,
+                    quantized: false,  // 禁用量化以使用fp32
+                    session_options: {
+                        logSeverityLevel: 3  // 设置日志级别为ERROR (0=Verbose, 1=Info, 2=Warning, 3=Error, 4=Fatal)
+                    }
+                };
 
-            // 通知前端当前使用的设备
-            self.postMessage({ 
-                status: 'ready',
-                device: this.device,  // 保持原有的 device 状态通知
-                useGPU: this.useGPU
-            });
+                // 创建pipeline
+                this.instance = await pipeline(this.task, this.model, options);
+
+                // 通知前端当前使用的设备
+                self.postMessage({ 
+                    status: 'ready',
+                    device: this.device,
+                    useGPU: this.useGPU
+                });
+            } catch (error) {
+                // 处理各种可能的错误
+                let errorMessage = '初始化失败: ';
+                
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage += '无法下载模型，请检查网络连接';
+                } else if (error.name === 'TypeError') {
+                    errorMessage += '浏览器版本过低，请使用最新版Chrome等现代浏览器';
+                } else {
+                    errorMessage += error.message;
+                }
+                
+                throw new Error(errorMessage);
+            }
         }
         return this.instance;
     }
@@ -59,6 +81,11 @@ PipelineSingleton.getInstance(x => {
     self.postMessage({
         status: 'loading',
         progress: x
+    });
+}).catch(error => {
+    self.postMessage({
+        status: 'error',
+        error: error.message
     });
 });
 
@@ -108,20 +135,24 @@ async function computeEmbeddings(texts, extractor) {
             continue;
         }
 
-        // 计算新向量
-        const output = await extractor(text, {
-            pooling: 'mean',
-            normalize: true,
-        });
-        const vector = Array.from(output.data);
-        
-        // 保存到缓存
-        vectorCache.set(text, vector);
-        
-        // 填充所有相同文本的位置
-        indices.forEach(index => {
-            embeddings[index] = vector;
-        });
+        try {
+            // 计算新向量
+            const output = await extractor(text, {
+                pooling: 'mean',
+                normalize: true,
+            });
+            const vector = Array.from(output.data);
+            
+            // 保存到缓存
+            vectorCache.set(text, vector);
+            
+            // 填充所有相同文本的位置
+            indices.forEach(index => {
+                embeddings[index] = vector;
+            });
+        } catch (error) {
+            throw new Error(`处理文本时出错: ${error.message}`);
+        }
     }
 
     return {
