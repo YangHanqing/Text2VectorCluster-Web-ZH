@@ -1,12 +1,13 @@
-import { pipeline, env } from "@huggingface/transformers";
-import clustering from 'density-clustering';
+import { pipeline } from "@huggingface/transformers";
+import { dbscan } from './dbscan';
 
 // 使用Singleton模式实现向量计算pipeline的懒加载
 class PipelineSingleton {
     static task = 'feature-extraction';
     static model = 'Xenova/bge-small-zh-v1.5';
     static instance = null;
-    static device = null;
+    static device = 'wasm';  // 默认使用 wasm
+    static useGPU = false;
 
     static async getInstance(progress_callback = null) {
         if (!this.instance) {
@@ -14,25 +15,34 @@ class PipelineSingleton {
 
             // 检测WebGPU支持
             try {
-                if (await env.backends.webgpu.isSupported()) {
-                    this.device = 'webgpu';
-                } else {
-                    this.device = 'wasm';
+                if ('gpu' in navigator) {
+                    const adapter = await navigator.gpu.requestAdapter();
+                    if (adapter) {
+                        const device = await adapter.requestDevice();
+                        if (device) {
+                            this.device = 'webgpu';
+                            this.useGPU = true;
+                            console.log('WebGPU is supported and will be used for computations');
+                        }
+                    }
                 }
             } catch (e) {
+                console.log('WebGPU initialization failed:', e);
                 this.device = 'wasm';
+                this.useGPU = false;
             }
 
             // 创建pipeline
             this.instance = await pipeline(this.task, this.model, {
                 progress_callback,
-                device: this.device
+                device: this.device  // 使用检测到的设备
             });
 
             // 通知前端当前使用的设备
             self.postMessage({ 
                 status: 'ready',
-                device: this.device
+                device: this.device,  // 保持原有的 device 状态通知
+                useGPU: this.useGPU
             });
         }
         return this.instance;
@@ -120,18 +130,6 @@ async function computeEmbeddings(texts, extractor) {
     };
 }
 
-// 执行DBSCAN聚类
-function performClustering(embeddings, epsilon, minPts) {
-    const startTime = performance.now();
-    const dbscan = new clustering.DBSCAN();
-    const clusters = dbscan.run(embeddings, epsilon, minPts);
-    return {
-        clusters,
-        noise: dbscan.noise,
-        clusteringTime: performance.now() - startTime
-    };
-}
-
 // 监听主线程消息
 self.addEventListener('message', async (event) => {
     const { type, data } = event.data;
@@ -180,8 +178,14 @@ self.addEventListener('message', async (event) => {
                 status: 'clustering'
             });
 
-            // 执行聚类
-            const { clusters, noise, clusteringTime } = performClustering(embeddings, data.epsilon, data.minPts);
+            // 将距离阈值转换为相似度阈值
+            // epsilon 原来是距离阈值 [0,1]，现在需要转换为相似度阈值 [-1,1]
+            // 例如：如果原来的距离阈值是 0.3，那么相似度阈值应该是 0.7
+            const similarityThreshold = 1 - data.epsilon;
+
+            // 执行聚类，使用 WebGPU（如果支持）
+            const { clusters, noise } = await dbscan(embeddings, similarityThreshold, data.minPts, PipelineSingleton.useGPU);
+            const clusteringTime = performance.now() - startTime - vectorizationTime;
 
             // 将聚类结果与原文本对应
             const results = clusters.map(cluster => ({

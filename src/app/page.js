@@ -11,7 +11,7 @@ export default function Home() {
   const [computeProgress, setComputeProgress] = useState(null); // { current, total, elapsedSeconds, speed }
   const [performance, setPerformance] = useState(null);
   const [results, setResults] = useState(null);
-  const [epsilon, setEpsilon] = useState(0.5);
+  const [epsilon, setEpsilon] = useState(0.15);
   const [minPts, setMinPts] = useState(2);
   
   const worker = useRef(null);
@@ -119,6 +119,16 @@ export default function Home() {
     XLSX.writeFile(wb, `clustered_results_${timestamp}.xlsx`);
   };
 
+  const loadTestData = async () => {
+    try {
+      const response = await fetch('/test-data.txt');
+      const data = await response.text();
+      setTexts(data);
+    } catch (error) {
+      console.error('加载测试数据失败:', error);
+    }
+  };
+
   return (
     <main className="flex min-h-screen bg-gray-50">
       {/* 左侧面板 */}
@@ -144,7 +154,15 @@ export default function Home() {
         </div>
 
         <div className="mb-4">
-          <label className="block text-sm font-medium mb-2">输入文本（每行一句）</label>
+          <div className="flex justify-between items-center mb-2">
+            <label className="block text-sm font-medium">输入文本（每行一句）</label>
+            <button
+              onClick={loadTestData}
+              className="text-xs px-2 py-1 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+            >
+              使用测试数据
+            </button>
+          </div>
           <textarea
             className="w-full h-48 p-3 border rounded-lg shadow-inner bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-200 focus:outline-none"
             value={texts}
